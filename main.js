@@ -14,6 +14,7 @@
 	var FONT_HEIGHT = 0x5;
 	var FREQUENCY = 60;
 	var INSTRUCTION_BYTES = 2;
+	var MAX_CYCLES = 32;
 	var MILLISECONDS = 1000;
 	var PROGRAM_COUNTER_START = 0x200;
 	var SCREEN_HEIGHT = 32;
@@ -231,8 +232,6 @@
 			context.fillStyle = graphics[i] ? "black" : "white";
 			context.fillRect(x, y, 1, 1);
 		}
-		
-		loop();
 	}
 
 	function fetch() {
@@ -302,19 +301,29 @@
 			console.log("Finished.");
 			return;
 		}
-		
-		while (!shouldDraw) {
+
+		for (var i = 0; !shouldDraw && i < MAX_CYCLES; ++i) {
 			cycle();
 		}
 
-		setTimeout(onTimeout, Date.now() - lastRender + timeout);
+		if (shouldDraw) {
+			setTimeout(onRenderTimeout, Date.now() - lastRender + timeout);
+		} else {
+			setTimeout(onCycleTimeout);
+		}
 
-		function onTimeout() {
+		function onCycleTimeout() {
+			cycle();
+			loop();
+		}
+
+		function onRenderTimeout() {
 			requestAnimationFrame(onAnimationFrame);
 			
 			function onAnimationFrame() {
 				lastRender = Date.now();
 				draw();
+				loop();
 			}
 		}
 	}
