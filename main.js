@@ -24,6 +24,7 @@
 	var beepSound;
 	var canvas;
 	var delayTimer;
+	var frameTime;
 	var graphics;
 	var indexRegister;
 	var isRunning;
@@ -38,7 +39,6 @@
 	var soundTimer;
 	var stack;
 	var stackPointer;
-	var timeout;
 
 	function byteSize(value) {
 		return value & 0xff;
@@ -222,18 +222,6 @@
 		}
 	}
 
-	function draw() {
-		shouldDraw = false;
-		var context = canvas.getContext("2d");
-
-		for (var i = 0; i < screenSize; ++i) {
-			var x = i % SCREEN_WIDTH;
-			var y = Math.floor(i / SCREEN_WIDTH);
-			context.fillStyle = graphics[i] ? "black" : "white";
-			context.fillRect(x, y, 1, 1);
-		}
-	}
-
 	function fetch() {
 		// instructions are two-byte long
 		var byte1 = memory[programCounter];
@@ -293,60 +281,60 @@
 			memory[i + PROGRAM_COUNTER_START] = buffer[i];
 		}
 
-		loop();
+		isRunning = true;
 	}
 
 	function loop() {
-		if (!isRunning) {
-			console.log("Finished.");
-			return;
-		}
-
-		for (var i = 0; !shouldDraw && i < MAX_CYCLES; ++i) {
-			cycle();
-		}
-
-		if (shouldDraw) {
-			setTimeout(onRenderTimeout, Date.now() - lastRender + timeout);
-		} else {
-			setTimeout(onCycleTimeout);
-		}
-
-		function onCycleTimeout() {
-			cycle();
-			loop();
-		}
-
-		function onRenderTimeout() {
-			requestAnimationFrame(onAnimationFrame);
-			
-			function onAnimationFrame() {
-				lastRender = Date.now();
-				draw();
-				loop();
+		if (isRunning) {
+			for (var i = 0; !shouldDraw && i < MAX_CYCLES; ++i) {
+				cycle();
 			}
+
+			shouldDraw && requestAnimationFrame(render);
 		}
+
+		setTimeout(loop, frameTime + lastRender - Date.now());
 	}
 
 	function main() {
-		setupHost();
+		beepSound = document.getElementById("beepSound");
+		canvas = document.getElementsByTagName("canvas")[0];
+		keys = {};
+		lastRender = Date.now();
+		screenSize = SCREEN_WIDTH * SCREEN_HEIGHT;
+		setupFileInput();
+		setupKeyboard();
+		frameTime = MILLISECONDS / FREQUENCY;
+		loop();
 	}
 
 	function notImplemented(code) {
-		var code = code || operationCode.toString(16);
-		console.log("Operation code 0x" + code + " not implemented.");
 		isRunning = false;
+		console.log("Operation code 0x" + operationCode.toString(16) + " not implemented.");
 	}
 
 	function random(max) {
 		return Math.floor(Math.random() * max + 1);
 	}
 
+	function render() {
+		shouldDraw = false;
+		var context = canvas.getContext("2d");
+
+		for (var i = 0; i < screenSize; ++i) {
+			var x = i % SCREEN_WIDTH;
+			var y = Math.floor(i / SCREEN_WIDTH);
+			context.fillStyle = graphics[i] ? "black" : "white";
+			context.fillRect(x, y, 1, 1);
+		}
+
+		lastRender = Date.now();
+	}
+
 	function reset() {
 		delayTimer = 0;
 		graphics = [];
 		indexRegister = 0;
-		isRunning = true;
 		memory = [];
 		operationCode = 0x0;
 		programCounter = PROGRAM_COUNTER_START;
@@ -380,17 +368,6 @@
 		}
 	}
 
-	function setupHost() {
-		beepSound = document.getElementById("beepSound");
-		canvas = document.getElementsByTagName("canvas")[0];
-		keys = {};
-		lastRender = 0;
-		screenSize = SCREEN_WIDTH * SCREEN_HEIGHT;
-		setupFileInput();
-		setupKeyboard();
-		timeout = MILLISECONDS / FREQUENCY;
-	}
-
 	function setupKeyboard() {
 		var KEY_MAP = {
 			"49" : 0x1, // 1
@@ -416,32 +393,18 @@
 
 		function onKeyDown(event) {
 			var key = KEY_MAP[event.keyCode];
-			
-			if (key) {
-				event.preventDefault();
-				keys[key] = 1;
-			}
+			key && (keys[key] = 1) && event.preventDefault();
 		}
 
 		function onKeyUp(event) {
 			var key = KEY_MAP[event.keyCode];
-
-			if (key) {
-				keys[key] = 0;
-			}
+			key && (keys[key] = 0);
 		}
 	}
 
 	function update() {
-		if (delayTimer > 0) {
-			--delayTimer;
-		}
-
-		if (soundTimer > 0) {
-			if (--soundTimer == 0) {
-				beepSound.play();
-			}
-		}
+		delayTimer > 0 && --delayTimer;
+		soundTimer > 0 && --soundTimer == 0 && beepSound.play();
 	}
 
 	// operations
@@ -478,11 +441,7 @@
 		// 3XNN - Skips the next instruction if VX equals NN.
 		var x = getX();
 		var nn = getNN();
-
-		if (registers[x] == nn) {
-			iterateProgramCounter();
-		}
-
+		registers[x] == nn && iterateProgramCounter();
 		iterateProgramCounter();
 	}
 
@@ -490,11 +449,7 @@
 		// 4XNN - Skips the next instruction if VX doesn't equal NN.
 		var x = getX();
 		var nn = getNN();
-
-		if (registers[x] != nn) {
-			iterateProgramCounter();
-		}
-
+		registers[x] != nn && iterateProgramCounter();
 		iterateProgramCounter();
 	}
 
@@ -502,11 +457,7 @@
 		// 5XY0 - Skips the next instruction if VX equals VY.
 		var x = getX();
 		var y = getY();
-
-		if (registers[x] == registers[y]) {
-			iterateProgramCounter();
-		}
-
+		registers[x] == registers[y] && iterateProgramCounter();
 		iterateProgramCounter();
 	}
 
@@ -605,11 +556,7 @@
 		// 9XY0 - Skips the next instruction if VX doesn't equal VY.
 		var x = getX();
 		var y = getY();
-
-		if (registers[x] != registers[y]) {
-			iterateProgramCounter();
-		}
-
+		registers[x] != registers[y] && iterateProgramCounter();
 		iterateProgramCounter();
 	}
 
@@ -645,11 +592,7 @@
 			for (var j = 0; j < SPRITE_WIDTH; ++j) {
 				if ((pixel & byteSize(0x80 >> j))) {
 					var position = (x + j + ((y + i) * SCREEN_WIDTH));
-
-					if (graphics[position]) {
-						registers[0xf] = 1;
-					}
-
+					graphics[position] && (registers[0xf] = 1);
 					graphics[position] ^= 1;
 				}
 			}
@@ -662,22 +605,14 @@
 	function operationEX9E() {
 		// EX9E - Skips the next instruction if the key stored in VX is pressed.
 		var x = getX();
-
-		if (keys[registers[x]]) {
-			iterateProgramCounter();
-		}
-
+		keys[registers[x]] && iterateProgramCounter();
 		iterateProgramCounter();
 	}
 
 	function operationEXA1() {
 		// EXA1 - Skips the next instruction if the key stored in VX isn't pressed.
 		var x = getX();
-
-		if (!keys[registers[x]]) {
-			iterateProgramCounter();
-		}
-
+		!keys[registers[x]] && iterateProgramCounter();
 		iterateProgramCounter();
 	}
 
